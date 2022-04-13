@@ -167,6 +167,9 @@ write.csv(site.df, "./outputs/siteDf.csv")
 
 table(is.na(plant.with.genus$family)) / nrow(plant.with.genus)
 
+# remove aquatic families
+plant.with.genus <- droplevels(plant.with.genus[!plant.with.genus$family %in% c("Nymphaeaceae", "Potamogetonaceae"),])
+
 # Novelty analysis ####
 plant.with.genus <- droplevels(plant.with.genus)
 plant.genus.slimmed <- plant.with.genus[complete.cases(plant.with.genus[,c("family", "site", "age", "count")]),
@@ -395,7 +398,7 @@ all.nprob.models <- novel.prob.models(novel.list = all.novel,
                                       site.df = site.df,
                                       time.k = 40,
                                       test.model=FALSE,
-                                      name = "all",
+                                      name = "all (noaqua)",
                                       time.age.limits = c(0,25000),
                                       factor.age.limits = c(0,1000),
                                       sauto.n = 500,
@@ -406,7 +409,7 @@ novel.prob.plot(prob.model.list = all.nprob.models,
                 mod.env.data = mod.env.data,
                 ylims=c(0,0.048), 
                 regylims=c(0,0.075),
-                name = "all",
+                name = "all (noaqua)",
                 time.age.limits = c(0,25000),
                 factor.age.limits = c(0,1000),
                 group.letters=c("A","AB","B","B","B","B"))
@@ -443,6 +446,144 @@ sub.novels <- subsample.novel(novel.list=all.novel,
 
 saveRDS(sub.novels, 
         date.wrap("./outputs/subsampling novel over times results (all)", ".rds"))
+
+#           Rate of novelty plot ####
+
+rate.preds <- all.nprob.models$time.pred
+rate.preds <- rate.preds[rate.preds$bins > 1000, ]
+rate.preds <- rate.preds[order(rate.preds$bins, decreasing=TRUE),]
+rate.preds$nDiff <- c(NA, diff(plogis(rate.preds$fit)))
+rate.preds$fitP <- plogis(rate.preds$fit)
+
+modern.preds <- all.nprob.models$fact.pred
+modern.preds <- modern.preds[order(modern.preds$bin.num, decreasing=TRUE),]
+modern.preds$fitP <- modern.preds$fit
+modern.preds$nDiff <- c(modern.preds$fit[1] - rate.preds$fitP[rate.preds$bins==1200],
+                        diff(modern.preds$fit))
+
+# modern accel vs fastest post-glacial
+modern.preds$nDiff[modern.preds$bin.fact=="0"] / max(rate.preds$nDiff, na.rm=TRUE)
+
+# modern accel vs average post-glacial
+modern.preds$nDiff[modern.preds$bin.fact=="0"] / mean(rate.preds$nDiff[rate.preds$bins <= 19000 &
+                                                                       rate.preds$bins >= 11000], na.rm=TRUE)
+
+line.preds <- rbind(rate.preds[,c("nDiff", "fitP")],
+                    modern.preds[,c("nDiff", "fitP")])
+
+pdf(date.wrap("./plots/novelty accel", ".pdf"), height=3.5, width=4.5)
+par(mar=c(2.75,3,1,0.25), ps=10, tcl=-0.25, mgp=c(3,0.5,0), las=1)
+plot(x=NULL, y=NULL, xlim=c(-0.005,0.013), ylim=c(0, 0.06), axes=FALSE, xlab="", ylab="")
+
+axis(side=1, mgp=c(3,0.2,0))
+axis(side=1, at=seq(-0.005, 0.013, 0.001), tcl= -0.125, labels=NA)
+mtext(side=1, line=1, text="Novelty acceleration")
+mtext(side=1, line=1.85, text=expression("("*Delta*" Novel community emergence probability)"),
+      cex=0.75)
+
+axis(side=2)
+mtext(side=2, line=2.25, text="Novel community emergence probability", las=0)
+
+abline(v=0)
+
+
+# density of accel
+accel.dens <- density(rate.preds$nDiff[!is.na(rate.preds$nDiff)],
+                      from=min(rate.preds$nDiff, na.rm=TRUE), to=max(rate.preds$nDiff, na.rm=TRUE))
+
+fast.y <- 0.70
+mean.y <- 0.8
+# modern accel
+segments(x0=modern.preds$nDiff[6], x1=modern.preds$nDiff[6],
+         y0=modern.preds$fitP[6], y1=relative.axis.point(mean.y, "y"),
+         lty="31", col="grey50")
+
+# fastest post-glac accel
+fast.rate <- rate.preds[which.max(rate.preds$nDiff),]
+segments(x0=fast.rate$nDiff, x1=fast.rate$nDiff,
+         y0=fast.rate$fitP, y1=relative.axis.point(fast.y, "y"),
+         lty="31", col="grey50")
+
+segments(x0=fast.rate$nDiff, x1=modern.preds$nDiff[6],
+         y0=relative.axis.point(fast.y, "y"), y1=relative.axis.point(fast.y, "y"),
+         lty="31", col="grey50")
+text(x=mean(c(fast.rate$nDiff, modern.preds$nDiff[6])),
+     y=relative.axis.point(fast.y+0.025, "y"),
+     labels=paste0(round(modern.preds$nDiff[6] / fast.rate$nDiff, 2), "x faster than fastest post-glacial"),
+     col="grey50", adj=0.5, cex=0.7)
+
+# mean post-glac accel
+mean.rate <- mean(rate.preds$nDiff[rate.preds$bins <= 19000 &
+                                   rate.preds$bins >= 10000])
+mean.rate.y <- accel.dens$y[which.min(abs(accel.dens$x - mean.rate))] / 70000
+
+segments(x0=mean.rate, x1=mean.rate,
+         y0=par("usr")[4] - mean.rate.y, y1=relative.axis.point(mean.y, "y"),
+         lty="31", col="grey50")
+
+segments(x0=mean.rate, x1=modern.preds$nDiff[6],
+         y0=relative.axis.point(mean.y, "y"), y1=relative.axis.point(mean.y, "y"),
+         lty="31", col="grey50")
+text(x=mean(c(mean.rate, modern.preds$nDiff[6])),
+     y=relative.axis.point(mean.y+0.025, "y"),
+     labels=paste0(round(modern.preds$nDiff[6] / mean.rate, 2), "x faster than average post-glacial"),
+     col="grey50", adj=0.5, cex=0.7)
+
+polygon(x=c(accel.dens$x[1], accel.dens$x, rev(accel.dens$x)[1]),
+        y=par("usr")[4] - c(0, accel.dens$y, 0) / 70000,
+        col=rgb(0,0,0,0.1))
+
+nov.round <- round(line.preds$nDiff,5)
+nov.ramp <- seq(min(nov.round, na.rm=TRUE), max(nov.round, na.rm=TRUE), 1e-5)
+nov.col <- colorRampPalette(c("darkblue","blue","grey60","red","darkred"),
+                            bias=2.1)(length(nov.ramp))
+nov.col.match <- nov.col[match(round(nov.round, 5), round(nov.ramp, 5))]
+
+arrow.n <- c(seq(1, nrow(rate.preds), 5), nrow(rate.preds):nrow(line.preds))
+
+sapply(2:(nrow(line.preds)-1), function(n){
+
+temp.col <- nov.col.match[n+1]
+  
+if(n %in% arrow.n){
+  
+arrow_offset <- ifelse(n >= nrow(rate.preds), 0.5, 0.25)
+
+arrows(x0 = line.preds$nDiff[n], 
+       y0 = line.preds$fitP[n],
+       x1 = line.preds$nDiff[n] + arrow_offset * diff(line.preds$nDiff)[n],
+       y1 = line.preds$fitP[n] + arrow_offset * diff(line.preds$fitP)[n],
+       length = 0.05, col=temp.col, lwd=0.5)
+
+}
+lines(line.preds$fitP[n:(n+1)] ~ line.preds$nDiff[n:(n+1)], col = temp.col)
+})
+
+points(modern.preds$fitP ~ modern.preds$nDiff, 
+       pch=c(rep(21, 5), 23), bg=c(rep("grey70", 4), rep("orange", 2)))
+
+text(y = modern.preds$fitP[1:4], x = modern.preds$nDiff[1:4],
+     labels=paste0(modern.preds$bin.fact[1:4], " ybp"), pos=4, cex=0.75, adj=0)
+text(y = modern.preds$fitP[5], x = modern.preds$nDiff[5],
+     labels=paste0("Pre-modern\n(",modern.preds$bin.fact[5], " ybp)"), pos=1, 
+     cex=0.75, adj=0)
+text(y = modern.preds$fitP[6], x = modern.preds$nDiff[6],
+     labels=paste0("Modern\n(",modern.preds$bin.fact[6], " ybp)"), pos=3, 
+     cex=0.75, adj=0)
+
+mtext(side=3, at=0.0005, adj=0, text = "Acceleration")
+mtext(side=3, at=-0.0005, adj=1, text = "Deceleration")
+par(xpd=NA)
+Arrows(x0=c(0.00475, -0.00475),
+       x1=c(0.007, -0.0055),
+       y1=relative.axis.point(1.035, "y"),
+       y0=relative.axis.point(1.035, "y"),
+       arr.type = "triangle", arr.length=0.1, arr.width=0.1,
+       lwd=1.5)
+par(xpd=FALSE)
+
+box()
+dev.off()
 
 # Environmental correlation / projection ####
 #             Data prep ####
@@ -2148,6 +2289,9 @@ write.csv(cbind(envSlope, env.AIC, unlist(envR2), c(NA, envComp)),
 # SUPPLEMENTARY ANALYSES ####
 # version of Fig 1 with different sized bins ####
 
+plant.with.genus <- read.csv(paste0(large_file_path, "/processed_genus_records.csv"))
+#plant.with.genus$site = plant.with.genus$site.id
+
 plant.slimmed <- plant.with.genus[!is.na(plant.with.genus$age),
                                   colnames(plant.with.genus) %in%
                                     c("family", "site", "age", "count")]
@@ -2224,6 +2368,8 @@ novel.prob.plot(prob.model.list = ten.nprob.models,
 saveRDS(ten.nprob.models,
         date.wrap("./outputs/novel probability models (1000 yr bins)", ".rds"))
 
+
+
 # analyses with different alpha ####
 
 test.alpha <- c(0.01,0.025,0.075,0.1)
@@ -2270,6 +2416,9 @@ sapply(1:length(alpha.list), function(n){
                   group.letters=c(""))
 })
 
+
+
+
 # Test the reliability of age modelling (using NAPD subset) ####
 
 NAPDSites <- unique(plant.with.genus$site[plant.with.genus$chronology.name=="NAPD 1"])
@@ -2301,6 +2450,7 @@ novel.prob.plot.comp(prob.model.list = all.nprob.models,
                      factor.age.limits = c(0,1000),
                      time.ylims = c(0,0.08),
                      factor.ylims=c(0, 0.08))
+
 
 # Genus-level analyses ####
 
@@ -2341,6 +2491,7 @@ genus.novel <- neotoma.novelty(dataset = plant.genus.slimmed,
                                sqrt.mat = TRUE)
 
 saveRDS(genus.novel, "./outputs/genus neotoma novelty.rds")
+#genus.novel <- readRDS("./outputs/genus neotoma novelty.rds")
 
 #         genus over time model ####
 
@@ -2484,8 +2635,6 @@ text(x = relative.axis.point(0.005, "x"),
 
 dev.off()
 
-# ####
-# UNSURES ####
 # new map trial ####
 #             create map objects ####
 library(sp)
@@ -2531,233 +2680,6 @@ box()
 close.screen(1)
 
 dev.off()
-
-# novelty in the modern bin ####
-
-site.samp.df <- plant.with.genus[!duplicated(paste0(plant.with.genus$site,
-                                                    ":",
-                                                    plant.with.genus$age)),]
-
-modern.samp.df <- droplevels(site.samp.df[site.samp.df$age <= 200,])
-
-modern.bin <- 50
-
-modern.samp.df$age.bin <- cut(modern.samp.df$age, breaks=seq(0,200,modern.bin))
-levels(modern.samp.df$age.bin)
-
-table(modern.samp.df$age.bin)
-hist(as.vector(table(modern.samp.df$site[!duplicated(paste0(modern.samp.df$site,
-                                                               ":",
-                                                               modern.samp.df$age.bin))])))
-
-target.sites <- table(modern.samp.df$site[!duplicated(paste0(modern.samp.df$site,
-                                                             ":",
-                                                             modern.samp.df$age.bin))]) == 3
-target.sites <- names(target.sites)[target.sites]
-
-modern.novel.ts <- droplevels(plant.with.genus[plant.with.genus$site %in%
-                                               target.sites &
-                                               plant.with.genus$age <=5000 &
-                                               plant.with.genus$age >= 0,])
-
-modern.genus.slimmed <- modern.novel.ts[,colnames(modern.novel.ts) %in%
-                                          c("genus", "site", "age", "count")]
-
-modern.novel <- neotoma.novelty(dataset = modern.genus.slimmed,
-                                ssmat.type = "abund",
-                                bin.width = modern.bin,
-                                rich.cutoff = c(0, Inf),
-                                taxon.res = "genus",
-                                bin.cutoff = 10,
-                                taxa.cutoff = 2,
-                                novel.alpha = 0.05,
-                                novel.metric = "jaccard")
-
-modern.df <- do.call("rbind", modern.novel$novel)
-
-dev.off()
-plot(tapply(modern.df$novel,
-            modern.df$bins,
-            mean) ~ as.numeric(levels(modern.df$bins)),
-     xlim=c(200,-100), ylim=c(0,0.10))
-
-modern.df$bin.num <- as.numeric(as.character(modern.df$bins))
-modern.df$Slag <- as.vector(scale(log(modern.df$bin.lag)))
-
-library(gamm4)
-modern.nov.m <- gamm4(novel ~ s(bin.num, k=-1, bs="cr") + Slag,
-                      random= ~(1|site),
-                      family=binomial(),
-                      data=modern.df)
-
-pred.df <- data.frame(bin.num = seq(0,1000,len=200),
-                      Slag = 0)
-
-pred.df <- cbind(pred.df,
-                 as.data.frame(predict(modern.nov.m$gam, newdata=pred.df, se.fit=TRUE)))
-pred.df$raw.fit <- plogis(pred.df$fit)
-pred.df$upper <- plogis(pred.df$fit + 1.96*pred.df$se.fit)
-pred.df$lower <- plogis(pred.df$fit - 1.96*pred.df$se.fit)
-
-lines(pred.df$raw.fit ~ pred.df$bin.num, lwd=2, col="orange")
-
-# elevation of tropical sites ####
-
-comb.df <- do.call("rbind", all.novel$novel)
-comb.df <- merge(comb.df, site.df[,c("site", "elev", "lat")],
-                 by.x = "site", by.y="site",
-                 all.x=TRUE, all.y=FALSE, sort=FALSE)
-comb.df$abs.lat <- abs(comb.df$lat)
-comb.df$sqrt.elev <- sqrt(comb.df$elev)
-comb.df <- comb.df[!is.na(comb.df$elev),]
-comb.df$bin.lag.scale <- as.vector(scale(log(comb.df$bin.lag)))
-
-library(gamm4)
-elev.m <- gamm4(novel ~ t2(sqrt.elev, abs.lat, k=-1, bs="cr") + bin.lag.scale,
-                random= ~(1|site),
-                family=binomial(), data=comb.df)
-
-# tensor smoother preds
-elev.seq = seq(min(comb.df$sqrt.elev, na.rm=TRUE), 
-               max(comb.df$sqrt.elev, na.rm=TRUE), len=1000)
-lat.seq = seq(0, 80, len=1000)
-grid.pred <- expand.grid(sqrt.elev = elev.seq,
-                         abs.lat = lat.seq)
-grid.pred$bin.lag.scale = matrix(0, nrow=nrow(grid.pred), ncol=1)
-
-grid.pred <- cbind(grid.pred,
-                   as.data.frame(predict(elev.m$gam, newdata=grid.pred, se.fit=TRUE)))
-grid.pred$raw.fit = plogis(grid.pred$fit)
-grid.pred$upper <- plogis(grid.pred$fit + 1.96*grid.pred$se.fit)
-grid.pred$lower <- plogis(grid.pred$fit - 1.96*grid.pred$se.fit)
-
-pdf("./plots/latitude elevation.pdf", height=4, width=5.5, useDingbats = FALSE)
-par(mar=c(0,0,0,0), ps=8, tcl=-0.25, mgp=c(3,0.5,0), las=1)
-
-split.screen(rbind(c(0.1,0.8,0.11,0.95),
-                   c(0.84,0.88,0.35,0.725)))
-
-screen(1)
-prop <- data.frame(prop = tapply(comb.df$novel,
-                                 comb.df$site,
-                                 mean),
-                   abs.lat = tapply(comb.df$abs.lat,
-                                    comb.df$site,
-                                    unique),
-                   elev = tapply(comb.df$sqrt.elev,
-                                 comb.df$site,
-                                 unique))
-
-prop$prop.cut <- cut(prop$prop, breaks=100)
-prop$col <- colorRampPalette(c("white", "#b3cedc", "#8a87c7", 
-                               "#80388e", "#4d193c", "black"))(100)[prop$prop.cut]
-
-plot(x = NULL, y = NULL, ylim=c(0,80), 
-     xlim = range(prop$elev, na.rm=TRUE),
-     yaxs="i", xaxs="i", cex=0.75, pch=21, 
-     bg=prop$col, lwd=0.5,
-     xaxt="n", yaxt="n", 
-     xlab="", ylab="")
-
-color.grad <- colorRampPalette(c("white", "#b3cedc", "#8a87c7", "#80388e", "#4d193c", "black"))(200)
-
-image(x=elev.seq,
-      y=lat.seq,
-      z=matrix(grid.pred$raw.fit, nrow=length(elev.seq), ncol=length(lat.seq), byrow=TRUE),
-      col=color.grad, add=TRUE,
-      useRaster=TRUE,
-      zlim=c(0.005,0.07))
-
-points(prop$abs.lat ~ prop$elev, lwd=0.5, pch=16, cex=0.4, col="grey50")
-
-contour(x=elev.seq,
-        y=lat.seq,
-        z=matrix(grid.pred$raw.fit, nrow=length(elev.seq), ncol=length(lat.seq), byrow=TRUE),
-        levels=seq(0,0.04,0.005), drawlabels=TRUE,
-        labels=seq(0,0.04,0.005), lwd=0.5,
-        add=TRUE, col="black", method="flattest")
-
-
-axis(side=2, at=seq(0,90,10), labels=parse(text=paste0(seq(0,90,10), "*degree")))
-axis(side=2, at=seq(0,90,5), labels=NA, tcl=-0.125)
-mtext(side=2, line=1.75, las=0, text="Absolute latitude", at=mean(c(0,90)))
-
-axis(side=1, mgp=c(3,0,0), 
-     at=sqrt(c(0,100,500,1000,2000,3000,4000)),
-     labels=c(0,100,500,1000,2000,3000,4000))
-
-axis(side=1, at=sqrt(c(seq(10,100,10),
-                       seq(100,6000,100))), 
-     mgp=c(3,0,0), labels=NA, tcl=-0.125)
-mtext(side=1, line=1, text="Elevation (m)")
-box()
-close.screen(1)
-
-screen(2)
-par(mar=c(0,0,0,0), ps=8, tcl=-0.25, mgp=c(3,0.5,0), las=1)
-plot(x=NULL, y=NULL, xlim=c(0,1), ylim=c(0.005,0.07), axes=FALSE, xlab="", ylab="",
-     xaxs="i", yaxs="i")
-image(x=0,
-      y=seq(0.005, 0.07, len=200),
-      z=matrix(1:200, nrow=1),
-      col=color.grad, add=TRUE, useRaster=TRUE)
-
-axis(side=4, at=seq(0,0.07,0.01))
-axis(side=4, at=c(seq(0.005,0.065,0.005)), tcl=-0.125, labels=NA)
-mtext(side=4, line=1.75, text="Novel community emergence probability", las=0)
-box()
-
-close.screen(2)
-
-close.screen(all.screens=TRUE)
-dev.off()
-
-
-# read in manual elevation shape files ####
-
-library(raster)
-
-elev.path <- "/home/timothy/University files - offline/Post-doc/large data file storage/novel_comms_plants/GTOPO30 HYDRO 1K"
-
-site.coords <- site.df[,c("long", "lat")]
-coordinates(site.coords) <- c("long", "lat")
-proj4string(site.coords) <- proj4string(world)
-
-elev.df <- do.call("rbind", lapply(list.files(elev.path), function(x){
-  
-  raster.path <- paste0(elev.path, "/", x)
-  raster.files <- list.files(raster.path, pattern=".bil")
-  raster.files <- raster.files[grepl("dem", raster.files)]
-  raster.path <- paste0(raster.path, "/", raster.files)
-  
-  temp.rast <- raster(raster.path)
-  temp.rast[temp.rast > 50000] = NA
-  plot(temp.rast)
-  temp.coords <- spTransform(site.coords, proj4string(temp.rast))
-  points(temp.coords)
-  
-  temp.coords <- extract(temp.rast, temp.coords)
-  table(temp.coords)
-  
-  return(data.frame(site = site.df$site[!is.na(temp.coords)],
-                    elev = temp.coords[!is.na(temp.coords)]))
-  
-}))
-
-site.df1 <- merge(site.df, elev.df,
-                  by.x="site", by.y="site",
-                  all.x=TRUE, all.y=FALSE, sort=FALSE)
-
-
-# save site coords ####
-
-site.coords <- site.df[,c("long", "lat")]
-coordinates(site.coords) <- c("long", "lat")
-proj4string(site.coords) <- proj4string(world)
-
-site.coords.df <- SpatialPointsDataFrame(coords = site.coords, data=site.df)
-
-writeOGR(site.coords.df, driver = 'ESRI Shapefile', layer = 1, "./outputs/site coordinates.shp")
 
 # novelty by human pop density ####
 
@@ -3002,157 +2924,6 @@ novel.prob.plot(prob.model.list = old.nprob.models,
                 group.letters=c("A","AB","B","B","B","B"))
 
 saveRDS()
-
-
-# version of Fig 1 with presence/absence novelty ####
-
-plant.slimmed <- plant.with.genus[!is.na(plant.with.genus$age),
-                               colnames(plant.with.genus) %in%
-                                 c("genus", "site", "age", "count")]
-
-pa.novel <- neotoma.novelty(dataset = plant.slimmed,
-                             ssmat.type = "pa",
-                             bins = seq(-100,max(plant.slimmed$age), 200),
-                             rich.cutoff = c(0, Inf),
-                             age.limits = c(-150, Inf),
-                             taxon.res = "genus",
-                             bin.cutoff = 10,
-                             taxa.cutoff = 2,
-                             novel.alpha = 0.05,
-                             novel.metric = "jaccard")
-
-pa.novel$novel <- cut.novel(pa.novel$novel, 5)
-
-
-pa.nprob.models <- novel.prob.models(novel.list = pa.novel,
-                                      site.df = site.df,
-                                      name = "PA",
-                                      time.k = 40,
-                                      test.model=FALSE,
-                                      time.age.limits = c(0,38000),
-                                      factor.age.limits = c(0,1000),
-                                      sauto.n = 5000,
-                                      sauto.iter = 999)
-
-novel.prob.plot(pa.nprob.models, 
-                env.data = temp.data,
-                ylims=c(0,0.025), 
-                name = "PA",
-                time.age.limits = c(0,38000),
-                factor.age.limits = c(0,1000),
-                group.letters=c(""),
-                lag = c(-500, -500))
-close.screen(all.screens=TRUE)
-
-saveRDS(pa.nprob.models,
-        date.wrap("./outputs/novel probability models (PA)", ".rds"))
-
-# examine age uncertainty ####
-
-table(plant.with.genus$chronology.name)
-
-tl <- plant.with.genus[plant.with.genus$site.name == "Tower Lake",]
-
-tl.age.diff <- cbind(tl$age.older - tl$age,
-                     tl$age - tl$age.younger)
-
-tl.sd <- rowMeans(tl.age.diff / 1.96)
-
-# randomly assign an age for each pollen sample from distribution, bin,
-# create ssmat, identify novelty, and repeat
-tl.main.ssmat <- create.ssmat(tl,
-                         site.name = tl.sim$site[1],
-                         bins=seq(-100,38000,200),
-                         tax.res="genus",
-                         type="abund")
-
-
-tl.sim.cats <- lapply(1:999, function(n){
-  
-print(n)
-
-tl.sim <- tl[,c("age","count","site", "genus")]
-
-tl.sim$age <- rnorm(nrow(tl.sim), tl.sim$age, tl.sd)
-
-tl.ssmat <- create.ssmat(tl.sim,
-                         site.name = tl.sim$site[1],
-                         bins=seq(-100,38000,200),
-                         tax.res="genus",
-                         type="abund")
-
-tl.novel <- identify.novel.gam(site.sp.mat = prop.table(tl.ssmat, 1),
-                               alpha = 0.05,
-                               metric = "jaccard",
-                               site = tl$site[1],
-                               plot=FALSE)
-
-results <- tl.novel$cat
-
-return(cbind(as.numeric(rownames(tl.ssmat)),
-             results))
-
-})
-
-pdf("./plots/date error simulation (Tower Lake).pdf", height=3, width=8, useDingbats=FALSE)
-par(mar=c(2,1,1,1), ps=8, tcl=-0.25, mgp=c(3,0,0))
-
-plot(x=NULL, y=NULL, xlim=range(tl$age), ylim=c(0,1), yaxt="n")
-
-point.alpha = 0.05
-cumul.col <- col2rgb("skyblue")/255
-novel.col <- col2rgb("orange")/255
-point.cols <- c(rgb(0.75,0.75,0.75,point.alpha),
-                rgb(cumul.col[1],cumul.col[2],cumul.col[3],point.alpha),
-                rgb(1,0,0,point.alpha),
-                rgb(novel.col[1],novel.col[2],novel.col[3],point.alpha))
-
-bin.template <- seq(0,9600,200)
-cat.props <- do.call("rbind", lapply(tl.sim.cats, function(x){
-
-x[,1] <- sort(as.numeric(x[,1]), decreasing=TRUE)
-  
-x <- x[-1,]
-
-cat.fact <- factor(x[,2], levels = c("back", "cumul", "instant", "novel"))
-
-y.pos <- jitter(seq(0.15,0.85, len=4)[cat.fact], amount=0.05)
-points(y.pos ~ as.numeric(x[,1]), pch=16, 
-       col=point.cols[cat.fact])
-
-return.cats <- rep(NA, length(bin.template))
-return.cats[match(x[,1], bin.template)] = x[,2]
-return(return.cats)
-
-}))
-
-back.prop <- colMeans(cat.props == "back", na.rm=TRUE)
-cumul.prop <- colMeans(cat.props == "cumul", na.rm=TRUE) 
-instant.prop <- colMeans(cat.props == "instant", na.rm=TRUE) 
-novel.prop <- colMeans(cat.props == "novel", na.rm=TRUE) 
-
-sapply(1:4, function(n){
-
-temp.prop <- list(back.prop, cumul.prop, instant.prop, novel.prop)[[n]]
-  
-text(x=bin.template + 50, y=seq(0.15,0.85, len=4)[n],
-     pos=ifelse(n==1, 1, 3), 
-     srt=90, cex=0.75, offset=1.25,
-     labels=ifelse(temp.prop > 0, round(temp.prop*100, 1), ""),
-     col = c("grey80", "skyblue", "red", "orange")[n])
-
-})
-
-
-tl.novel.plot <- tl.novel[-1,]
-y.pos <- seq(0.15,0.85, len=4)[as.factor(tl.novel.plot$cat)]
-
-points(y.pos ~ as.numeric(as.character(tl.novel.plot$bins)),
-       pch=21, cex=1.5, 
-       bg=c("grey80", "skyblue", "red", "orange")[as.factor(tl.novel.plot$cat)])
-
-
-dev.off()
 
 
 # compare varying alphas ####
@@ -3457,8 +3228,6 @@ test <- merge(plant.with.genus, site.df[,c("site", "REGION")],
 head(test)
 table(test$taxon == "Cyperaceae", test$REGION)
 
-# ####
-# POST NE&E SUPPS ADDITIONS ####
 # Introductory figure on novel comm framework ####
 
 # make some fake dissim data using the shape of the mean expected curves
@@ -3663,468 +3432,5 @@ text(x=relative.axis.point(0.035, "x"),
      labels="(B)", font=2, adj=0.5)
 box()
 close.screen(3)
-
-dev.off()
-# ####
-# New Fig 1 ####
-
-# we need to find a decent length time series with a mixture of novelty cats
-# and variation in expectations
-
-siteStats <- do.call("rbind", lapply(all.novel$novel, function(x){
-  
-  data.frame(site = x$site[1],
-             len = nrow(x),
-             novC = sum(x$novel, na.rm=TRUE),
-             instC = sum(x$instant, na.rm=TRUE),
-             cumuC = sum(x$cumul, na.rm=TRUE),
-             instVar = var(x$seq.exp, na.rm=TRUE),
-             cumuVar = var(x$min.exp, na.rm=TRUE))
-  
-}))
-
-siteStats[order(siteStats$len, decreasing=TRUE),]
-summary(siteStats$instVar)
-
-siteStats[siteStats$len > 55 &
-  siteStats$instVar > 0.005 & 
-  siteStats$cumuVar > 1e-3,]
-
-subsite <- "23911"
-subGenus <- droplevels(plant.with.genus[plant.with.genus$site == subsite,])
-subGenus[1,]
-subSsmat <- all.novel$raw.ssmats[[subsite]]
-
-subSsmat <- subSsmat[,!colnames(subSsmat) %in% c("Myriophyllum", "Potamogeton")]
-
-subdata <- identify.novel.gam( prop.table(subSsmat, 1),
-                              alpha=0.05, metric="bray",
-                              site="1", plot=FALSE, plot.data=TRUE)
-
-propMat <- prop.table(subSsmat, margin=1)
-
-# okay, let's get each genus overall proportion, order and drop genera with
-# less than 10% representation in at least one sample bin
-keepgen <- colSums(propMat > 0.1) > 0
-
-propMat <- cbind(propMat[,keepgen], rowSums(propMat[,!keepgen]))
-
-cumul.col <- rgb(0.373,0.651,0.765)
-cumul.col.rgb <- col2rgb(cumul.col)/255
-
-areaplot <- function(mat, cols){
-
-  mat <- mat[,order(colMeans(mat), decreasing=TRUE)]
-  cumMat <- rbind(0, apply(mat, 1, cumsum))
-  xPoints <- as.numeric(rownames(mat))
-  
-  sapply(1:ncol(mat), function(n){
-    
-  polygon(x = c(cumMat[n,], rev(cumMat[n+1,])), 
-          y = c(xPoints, rev(xPoints)), col=cols[n])
-    
-  })
-  
-}
-
-ylims=c(0,max(as.numeric(rownames(propMat))))
-pdf("./plots/example pollen.pdf", height=5, width=7, useDingbats = FALSE)
-
-split.screen(rbind(c(0.10,0.32,0.1,0.96),
-                   c(0.3935,0.55,0.1,0.96),
-                   c(0.55,0.7065,0.1,0.96),
-                   c(0.10,0.99,0.1,0.96)))
-
-screen(1)
-par(mar=c(0,0,0,0), ps=8, tcl=-0.25)
-plot(x=NULL, y=NULL, xlim=c(0,1), ylim=rev(ylims), xaxs="i", yaxs="i", 
-     axes=FALSE, xlab="", ylab="")
-axis(side=4, at=seq(0,20000,2000), labels=NA)
-axis(side=4, at=seq(0,20000,500), labels=NA, tcl=-0.125)
-mtext(side=4, at=seq(0,12000,2000), 
-      adj=0.5, padj=0.5, line=1.25, text=format(seq(0,12000,2000), big.mark=","), las=1)
-mtext(side=4, at=relative.axis.point(1.1, "y"), line=0, text="Years before present", las=1)
-
-
-axis(side=1, at=seq(0,1,0.25), mgp=c(3,0,0))
-mtext(side=1, line=1, text="Relative abundance")
-mtext(side=2, line=2, text="Pollen zones")
-
-library(viridis)
-areaCols <- viridis(ncol(propMat)+1, option="V")
-areaCols <- areaCols[rep(1:round(length(areaCols)/2), each=2) + c(0, round(length(areaCols)/2))]
-
-areaplot(mat=propMat, cols=areaCols)
-
-# zones from Fossitt 1994
-foss <- read.csv("./raw.datafiles/Fossitt_zones.csv")
-segments(x0=0,x1=1, y0=foss$end, col="white", lty="31")
-mtext(side=2, line=0.1, at=rowMeans(foss[,2:3]), las=1, text=foss$zone)
-
-mtext(side=3, line=0.05, at=par("usr")[1], text="(A)", font=2, adj=0)
-
-box()
-close.screen(1)
-
-screen(4)
-par(mar=c(0,0,0,0), ps=8, tcl=-0.25)
-
-novel.col <- col2rgb("orange")/255
-
-plot(x=NULL, y=NULL, xlim=c(0,1), ylim=rev(ylims), xaxs="i", yaxs="i", axes=FALSE)
-
-text(x=0.875, y=relative.axis.point(0.98, "y"), 
-     labels=expression("Novelty framework result"), adj=0.5)
-
-rect(xleft=0, xright=1, ybottom=12000, ytop=12400, border=NA, 
-     col=rgb(novel.col[1],novel.col[2],novel.col[3],0.5))
-text(x=0.69, y=12200, labels=expression("(1) Emergence of novel state"), adj=0)
-
-rect(xleft=0, xright=1, ybottom=10000, ytop=10400, border=NA,
-     col=rgb(0.5,0.5,0.5,0.25))
-text(x=0.69, y=10800, labels=expression("(2) Rapid return to previously observed\nstate: no emergence of novelty as not\nsufficiently different to past states"), adj=c(0,1))
-
-rect(xleft=0, xright=1, ybottom=8800, ytop=9400, border=NA,
-     col=rgb(novel.col[1],novel.col[2],novel.col[3],0.5))
-text(x=0.69, y=9400, labels=expression("(3) Two successive novel states during\nrapid ecological turnover to new state"), adj=0)
-
-rect(xleft=0, xright=1, ybottom=8400, ytop=8000, border=NA,
-     col=rgb(0.5,0.5,0.5,0.25))
-text(x=0.69, y=8200, labels=expression("(4) Continuation of the novel state in (3)\nbut no emergence of new novel state"), adj=c(0,1))
-
-
-rect(xleft=0, xright=1, ybottom=c(1800, 4800, 7200), ytop=c(2200, 4400, 6800), border=NA,
-     col=rgb(0.5,0.5,0.5,0.25))
-text(x=0.69, y=3000, labels=expression("(5) Gradual vegetational turnover does\nnot result in the emergence of ecological\nnovelty, even if ending composition is\nvastly different from the start of the time\nseries"), adj=0)
-
-close.screen(4)
-
-screen(2)
-par(mar=c(0,0,0,0), ps=8, tcl=-0.25)
-plot(x=NULL, y=NULL, xlim=c(0,0.8), ylim=rev(ylims),  yaxs="i", axes=FALSE)
-axis(side=2, at=seq(0,20000,2000), labels=NA)
-axis(side=2, at=seq(0,20000,500), labels=NA, tcl=-0.125)
-
-axis(side=1, at=seq(0,1,0.25), mgp=c(3,0,0))
-mtext(side=1, line=1.25, text="Instantaneous\ndissimilarity")
-
-novbins <- as.numeric(subdata[[1]]$bins)
-subnovel <- subdata[[1]]
-
-polygon(x=c(subdata[[2]]$lwr, rev(subdata[[2]]$upr)),
-        y=c(novbins, rev(novbins)), border="red", col=rgb(1,0,0,0.3))
-lines(as.numeric(subnovel$bins) ~ subnovel$seq.exp, col="red", lwd=2)
-lines(as.numeric(subnovel$bins) ~ subnovel$seq.dist)
-with(subnovel[subnovel$instant,], points(as.numeric(bins) ~ seq.dist, pch=21, bg="red"))
-
-mtext(side=3, line=0.05, at=par("usr")[1], text="(B)", font=2, adj=0)
-
-box()
-close.screen(2)
-
-screen(3)
-par(mar=c(0,0,0,0), ps=8, tcl=-0.25)
-plot(x=NULL, y=NULL, xlim=c(0,0.8), ylim=rev(ylims), yaxs="i", axes=FALSE)
-axis(side=1, at=seq(0,1,0.25), mgp=c(3,0,0))
-mtext(side=1, line=1.25, text="Cumulative\ndissimilarity")
-
-polygon(x=c(subdata[[3]]$lwr, rev(subdata[[3]]$upr)),
-        y=c(novbins, rev(novbins)), border=cumul.col, col=rgb(cumul.col.rgb[1],
-                                                              cumul.col.rgb[2],
-                                                              cumul.col.rgb[3],0.3))
-lines(as.numeric(subnovel$bins) ~ subnovel$min.exp, col=cumul.col, lwd=2)
-lines(as.numeric(subnovel$bins) ~ subnovel$raw.min.dist)
-with(subnovel[subnovel$cumul,], points(as.numeric(bins) ~ raw.min.dist, pch=21, bg=cumul.col))
-
-mtext(side=3, line=0.05, at=par("usr")[1], text="(C)", font=2, adj=0)
-
-
-box()
-close.screen(3)
-
-dev.off()
-# Correlation between dissimilarities and novelties ####
-a <- do.call("rbind", all.novel$novel)
-summary(a$novel[as.numeric(a$bins) <= 25000])
-
-plot(a$seq.p ~ a$seq.dist)
-seqGlm <- betareg(beta.tr(seq.p) ~ seq.dist, data=a)
-summary(seqGlm)
-minGlm <- betareg(beta.tr(min.p) ~ raw.min.dist, data=a)
-summary(minGlm)
-
-# what about raw cutoffs
-seqOut <- a$seq.dist >= quantile(a$seq.dist, 0.95, na.rm=TRUE)
-minOut <- a$raw.min.dist >= quantile(a$raw.min.dist, 0.95, na.rm=TRUE)
-novOut <- seqOut & minOut
-
-table(a$novel, novOut)
-
-
-# Look for extremely large pollen bins ####
-
-aMat <- a[,c("seq.dist", "raw.min.dist", "seq.p", "min.p")]
-test <- princomp(aMat[complete.cases(aMat),])
-test$loadings
-
-totalPollCount <- do.call("rbind", lapply(1:length(all.novel$raw.ssmats), 
-                                function(n){
-                                  cbind(n, 
-                                        1:nrow(all.novel$raw.ssmats[[n]]),
-                                        rowSums(all.novel$raw.ssmats[[n]]))}))
-
-head(totalPollCount)
-
-bigCounts <- totalPollCount[totalPollCount[,3] > 50000,]
-
-bigDf <- plant.record.df[plant.record.df$site.id %in% all.novel$sites[unique(bigCounts[,1])],]
-
-subCheck <- droplevels(plant.record.df[plant.record.df$site.id == all.novel$sites[1961],])
-table(subCheck$site.name)
-
-a <- subCheck[subCheck$genus == "Pinus",]
-
-as.data.frame(tapply(subCheck$count, subCheck$sample.id, sum))
-
-sampCheck <- plant.record.df[plant.record.df$sample.id == "398352" &
-                            !is.na(plant.record.df$sample.id),]
-
-
-
-sum(subCheck$count)
-
-head(bigCounts)
-
-summary(totalPollCount[totalPollCount > 10000])
-
-summary(duplicated(plant.with.genus$sample.id))
-summary(duplicated(bigDf$sample.id))
-
-# Rate pol comparison #####
-
-library(RRatepol)
-
-plantSplit <- split(plant.with.genus, f=plant.with.genus$site)
-novDf <- do.call("rbind", all.novel$novel)
-novSplit <- split(novDf, f=novDf$site)
-
-longestTS <- which.max(sapply(novSplit, nrow))
-
-plantLong <- plantSplit[[names(longestTS)]]
-novLong <- novSplit[[names(longestTS)]]
-
-a_Poll <- as.data.frame(wide.form(plantLong$sample.id, plantLong$genus, plantLong$count))
-a_Poll$sample.id <- as.character(rownames(a_Poll))
-  
-a_age <- data.frame(sample.id = plantLong$sample.id[!duplicated(plantLong$sample.id)],
-                    depth = plantLong$depth[!duplicated(plantLong$sample.id)],
-                    age = plantLong$age[!duplicated(plantLong$sample.id)])
-a_age$sample.id <- as.character(a_age$sample.id)
-
-a_age <- a_age[order(a_age$age),]
-
-a_Poll <- a_Poll[match(a_age$sample.id, a_Poll$sample.id),]
-
-sequence_01 <- try(RRatepol::fc_estimate_RoC(
-  data_source_community = as.data.frame(a_Poll),
-  data_source_age = a_age,
-  age_uncertainty = FALSE,
-  smooth_method = "m.avg",
-  tranform_to_proportions=TRUE,
-  Number_of_shifts=1,
-  treads=4,
-  DC = "bray",
-  Working_Units = "bins",
-  bin_size=500,
-  standardise = TRUE,
-  N_individuals=150,
-  rand = 99,
-  time_standardisation=500))
-
-# read in respective 500 year novelty
-long500 <- neotoma.novelty(plantLong,
-                           ssmat.type = "abund",
-                           bins = seq(0,26000, 500),
-                           rich.cutoff = c(0,Inf),
-                           age.limits = c(0, 26000),
-                           taxon.res = "genus",
-                           bin.cutoff = 10,
-                           taxa.cutoff = 2,
-                           novel.alpha = 0.05,
-                           novel.metric = "bray")
-
-# match ages to novel df
-nov500 <- long500$novel[[1]]
-nov500 <- nov500[order(as.numeric(nov500$bins)),]
-nov500$bins <- as.numeric(nov500$bins)
-
-sequence_01 <- as.data.frame(sequence_01)
-sequence_01$Age <- sequence_01$Age - 250
-
-comb500 <- merge(x=nov500, y=sequence_01,
-                 by.x="bins", by.y="Age",
-                 all.x=TRUE, all.y=FALSE, sort=FALSE)
-
-plot(comb500$seq.dist ~ comb500$ROC)
-cor(comb500[,c("seq.dist", "ROC")], use="complete.obs")
-
-
-# add ratepol to novel df
-# sqrt comp novelty ####
-
-plant.with.genus <- droplevels(plant.with.genus)
-plant.genus.slimmed <- plant.with.genus[complete.cases(plant.with.genus[,c("genus", "site", "age", "count")]),
-                                        c("genus", "site", "age", "count")]
-#plant.genus.slimmed <- plant.with.genus[,c("burkeTaxa", "site", "age", "count")]
-
-sqrt.novel <- neotoma.novelty(dataset = plant.genus.slimmed,
-                              ssmat.type = "abund",
-                              bins = seq(-100,max(plant.genus.slimmed$age), 200),
-                              rich.cutoff = c(10, Inf),
-                              age.limits = c(-150, 25100),
-                              taxon.res = "genus",
-                              bin.cutoff = 10,
-                              taxa.cutoff = 5,
-                              novel.alpha = 0.05,
-                              novel.metric = "bray",
-                              sqrt.mat=TRUE)
-
-saveRDS(sqrt.novel, "./outputs/sqrt neotoma novelty.rds")
-
-sqrt.df <- do.call("rbind", sqrt.novel$novel)
-all.df <- do.call("rbind", all.novel$novel)
-
-table(all.df$cat)
-table(sqrt.df$cat, all.df$cat)
-
-
-sqrt.nprob.models <- novel.prob.models(novel.list = sqrt.novel,
-                                      site.df = site.df,
-                                      time.k = 40,
-                                      test.model=FALSE,
-                                      name = "sqrt",
-                                      time.age.limits = c(1200,25000),
-                                      factor.age.limits = c(0,1000),
-                                      sauto.n = 500,
-                                      sauto.iter = 999)
-
-novel.prob.plot(prob.model.list = sqrt.nprob.models, 
-                env.data = temp.data,
-                mod.env.data = mod.env.data,
-                ylims=c(0,0.065), 
-                regylims=c(0,0.09),
-                name = "sqrt",
-                time.age.limits = c(0,25000),
-                factor.age.limits = c(0,1000),
-                group.letters=c("A","AB","B","B","B","B"))
-
-saveRDS(all.nprob.models,
-        date.wrap("./outputs/novel probability models (all)", ".rds"))
-
-
-# pollen sampling over time ####
-
-plantSplit <- split(plant.with.genus,
-      f=paste0(plant.with.genus$site.id, ".",
-               plant.with.genus$sample.id))
-
-pollen.sampling <- do.call("rbind", lapply(plantSplit,
-                           function(x){
-
-genSum <- tapply(x$count, factor(!is.na(x$genus), 
-                                 levels=c("FALSE", "TRUE")), 
-                 sum, na.rm=TRUE)
-genSum[is.na(genSum)] = 0
-genProp <- genSum[2] / sum(genSum)
-return(data.frame(genProp = genProp,
-                  age = x$age[1],
-                  site = x$site[1]))
-}))
-
-# add in continent
-pollen.sampling <- merge(x=pollen.sampling, y=site.df[,c("site.id", "REGION")],
-                         by.x="site", by.y="site.id",)
-
-# model pollen genus fraction over time for each region
-pollenGam <- gam(genProp ~ s(age, by=REGION) + REGION, family=betar, data=pollen.sampling)
-
-pred.df <- data.frame(age=rep(seq(0,25000,len=200),2),
-                      REGION=rep(c("Europe", "North America"), each=200))
-pred.df <- cbind(pred.df,
-                 as.data.frame(predict(pollenGam, newdata=pred.df, se.fit=TRUE)))
-
-pollTab <- table(cut(pollen.sampling$genProp, breaks=seq(0,1,0.1)),
-                 cut(pollen.sampling$age, breaks=seq(0, 25000, 5000)))
-pollTab <- apply(pollTab, 2, function(x){x / sum(x)})
-
-pdf("./plots/pollen genus patterns.pdf", height=7, width=6, useDingbats = FALSE)
-par(mfrow=c(2,1), mar=c(3,0,0,0), oma=c(1,4,1,1), ps=10, tcl=-0.25, las=1, mgp=c(3,0.5,0))
-
-plot(x=NULL, y=NULL, xlim=c(25000,0), ylim=c(0,1), xaxt="n")
-with(pred.df[pred.df$REGION=="Europe",],
-{
-polygon(x=c(age, rev(age)),
-        y=plogis(c(fit + 1.96 * se.fit, rev(fit - 1.96*se.fit))),
-        border=NA, col=rgb(0,0,1,0.5))
-lines(plogis(fit) ~ age, lwd=2, col="blue")
-})
-
-dgrgb <- col2rgb("darkgreen")/255
-with(pred.df[pred.df$REGION=="North America",],
-     {
-       polygon(x=c(age, rev(age)),
-               y=plogis(c(fit + 1.96 * se.fit, rev(fit - 1.96*se.fit))),
-               border=NA, col=rgb(dgrgb[1],dgrgb[2],dgrgb[3],0.5))
-       lines(plogis(fit) ~ age, lwd=2, col="darkgreen")
-     })
-
-mtext(side=2, line=2, las=0, text="Fraction of pollen with genus-level identification")
-axis(side=1, mgp=c(3,0.2,0))
-mtext(side=1, line=1.5, las=0, text="Age (years before 1950AD)")
-
-text(x=relative.axis.point(0.03, "x"),
-     y=relative.axis.point(0.95, "y"),
-     labels="(A)", font=2)
-
-text(x=relative.axis.point(0.215, "x"),
-     y=relative.axis.point(0.95, "y"),
-     labels=expression(bold("North America"*phantom(" & Europe"))), 
-     font=2, col="#629D26")
-text(x=relative.axis.point(0.215, "x"),
-     y=relative.axis.point(0.95, "y"),
-     labels=expression(bold(phantom("North America")*" & "*phantom("Europe"))), 
-     font=2, col="black")
-text(x=relative.axis.point(0.215, "x"),
-     y=relative.axis.point(0.95, "y"),
-     labels=expression(bold(phantom("North America & ")*"Europe")), 
-     font=2, col="blue")
-
-barWidth = 0.015
-plot(x=NULL, y=NULL, xlim=c(0,1), ylim=c(0,0.6), yaxs="i", xaxt="n", xlab="", ylab="",
-     xaxs="i")
-rect(xleft=rep(seq(0.05,0.95,0.1), 4) + rep(seq(-(2*barWidth),(2*barWidth),len=5), each=10)- 0.5*barWidth,
-     xright=rep(seq(0.05,0.95,0.1), 4) + rep(seq(-(2*barWidth),(2*barWidth),len=5), each=10) + 0.5*barWidth,
-     ybottom=0, ytop=pollTab,
-     col=rep(colorRampPalette(c("black", "white"))(5), each=10))
-axis(side=1, at=seq(0.05,0.95,0.1), labels=NA)
-mtext(side=2, line=2, las=0, text="Proportion of pollen samples")
-mtext(side=1, line=2.5, las=0, text="Fraction of pollen with genus-level identification")
-par(xpd=NA)
-text(x=seq(0.05,0.95,0.1),
-     y=relative.axis.point(-0.035, "y"),
-     labels=paste0(seq(0,90,10),
-                   "-",
-                   seq(10,100,10), "%"), srt=30, adj=1)
-text(x=relative.axis.point(0.03, "x"),
-     y=relative.axis.point(0.95, "y"),
-     labels="(B)", font=2)
-
-legend(x=0, y=0.5, fill=colorRampPalette(c("black", "white"))(5),
-       legend=c("0-5,000 ybp",
-              "5,001-10,000 ybp",
-              "10,001-15,000 ybp",
-              "15,001-20,000 ybp",
-              "20,000-25,000 ybp"), bty="n",
-       pt.cex=1.25, y.intersp=0.8, x.intersp=0.7)
 
 dev.off()
