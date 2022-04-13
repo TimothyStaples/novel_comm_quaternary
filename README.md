@@ -1,4 +1,4 @@
-Code used to generate results, figures and tables for DOI: .
+Code used to generate results, figures and tables for [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.6456617.svg)](https://doi.org/10.5281/zenodo.6456617).
 
 The data used to generate this publication were obtained from the Neotoma Paleoecology Database (NPD). These are not provided alongside this repository, but are freely available. We have included code to access NPD data as used in this project in the "data_acquisition_processing.R" file.
 
